@@ -10,6 +10,7 @@
 //*********************************************************
 
 #pragma once
+#include "DepthPvMapper.h"
 
 namespace ComputeOnDevice
 {
@@ -39,6 +40,7 @@ namespace ComputeOnDevice
 
         virtual void OnRender() override;
 
+
     private:
         // Initializes access to HoloLens sensors.
         void StartHoloLensMediaFrameSourceGroup();
@@ -50,25 +52,27 @@ namespace ComputeOnDevice
         // Selected HoloLens media frame source group
         HoloLensForCV::MediaFrameSourceGroupType _selectedHoloLensMediaFrameSourceGroupType;
         HoloLensForCV::MediaFrameSourceGroup^ _holoLensMediaFrameSourceGroup;
+		HoloLensForCV::MediaFrameSourceGroup^ _depthMediaFrameSourceGroup;
         bool _holoLensMediaFrameSourceGroupStarted;
+		bool _depthMediaFrameSourceGroupStarted;
 
         // HoloLens media frame server manager
         HoloLensForCV::SensorFrameStreamer^ _sensorFrameStreamer;
 
         Windows::Foundation::DateTime _latestSelectedCameraTimestamp;
-
+		
+		
         cv::Mat _undistortMap1;
         cv::Mat _undistortMap2;
         bool _undistortMapsInitialized;
 
         cv::Mat _undistortedPVCameraImage;
-        cv::Mat _resizedPVCameraImage;
-        cv::Mat _blurredPVCameraImage;
-        cv::Mat _cannyPVCameraImage;
+        cv::Mat _rgbFrame;
+		cv::Mat _depthFrame;
 
         std::vector<Rendering::Texture2DPtr> _visualizationTextureList;
         Rendering::Texture2DPtr _currentVisualizationTexture;
-
+		DepthPvMapper* _depthMapper;
         bool _isActiveRenderer;
     };
 }

@@ -107,11 +107,13 @@
   <ItemGroup>
     <ClInclude Include="AppMain.h" />
     <ClInclude Include="AppView.h" />
+    <ClInclude Include="DepthPvMapper.h" />
     <ClInclude Include="pch.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="AppMain.cpp" />
     <ClCompile Include="AppView.cpp" />
+    <ClCompile Include="DepthPvMapper.cpp" />
     <ClCompile Include="pch.cpp">
       <PrecompiledHeader>Create</PrecompiledHeader>
     </ClCompile>

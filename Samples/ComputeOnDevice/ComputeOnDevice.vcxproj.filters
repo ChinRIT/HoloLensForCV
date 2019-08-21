@@ -31,11 +31,13 @@
     <ClCompile Include="pch.cpp" />
     <ClCompile Include="AppView.cpp" />
     <ClCompile Include="AppMain.cpp" />
+    <ClCompile Include="DepthPvMapper.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="pch.h" />
     <ClInclude Include="AppView.h" />
     <ClInclude Include="AppMain.h" />
+    <ClInclude Include="DepthPvMapper.h" />
   </ItemGroup>
   <ItemGroup>
     <AppxManifest Include="Package.appxmanifest" />

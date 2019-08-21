@@ -19,11 +19,12 @@ namespace ComputeOnDevice
         const std::shared_ptr<Graphics::DeviceResources>& deviceResources)
         : Holographic::AppMainBase(deviceResources)
         , _selectedHoloLensMediaFrameSourceGroupType(
-            HoloLensForCV::MediaFrameSourceGroupType::PhotoVideoCamera)
+            HoloLensForCV::MediaFrameSourceGroupType::HoloLensResearchModeSensors)
         , _holoLensMediaFrameSourceGroupStarted(false)
         , _undistortMapsInitialized(false)
         , _isActiveRenderer(false)
     {
+		_depthMapper = nullptr;
     }
 
     void AppMain::OnHolographicSpaceChanged(
@@ -57,14 +58,14 @@ namespace ComputeOnDevice
         }
         else
         {
-            // Freeze frame
-            _visualizationTextureList.push_back(_currentVisualizationTexture);
-            _currentVisualizationTexture = nullptr;
-            _isActiveRenderer = false;
+            //// Freeze frame
+            //_visualizationTextureList.push_back(_currentVisualizationTexture);
+            //_currentVisualizationTexture = nullptr;
+            //_isActiveRenderer = false;
         }
     }
 
-    void AppMain::OnUpdate(
+	void AppMain::OnUpdate(
         _In_ Windows::Graphics::Holographic::HolographicFrame^ holographicFrame,
         _In_ const Graphics::StepTimer& stepTimer)
     {
@@ -73,6 +74,29 @@ namespace ComputeOnDevice
         dbg::TimerGuard timerGuard(
             L"AppMain::OnUpdate",
             30.0 /* minimum_time_elapsed_in_milliseconds */);
+
+
+		Windows::Perception::Spatial::SpatialCoordinateSystem^ currentCoordinateSystem =
+			_spatialPerception->GetOriginFrameOfReference()->CoordinateSystem;
+
+		if (!_isActiveRenderer)
+		{
+			_currentSlateRenderer =
+				std::make_shared<Rendering::SlateRenderer>(
+					_deviceResources);
+			_slateRendererList.push_back(_currentSlateRenderer);
+			_isActiveRenderer = true;
+		}
+
+		auto pointer = 
+		Windows::UI::Input::Spatial::SpatialPointerPose::TryGetAtTimestamp(currentCoordinateSystem, holographicFrame->CurrentPrediction->Timestamp);
+
+
+
+		// When a Pressed gesture is detected, the sample hologram will be repositioned
+		// two meters in front of the user.
+		_currentSlateRenderer->PositionHologram(pointer);
+
 
         //
         // Update scene objects.
@@ -98,15 +122,20 @@ namespace ComputeOnDevice
         }
 
         HoloLensForCV::SensorFrame^ latestFrame;
+		HoloLensForCV::SensorFrame^ latestDepthFrame;
 
-        latestFrame =
-            _holoLensMediaFrameSourceGroup->GetLatestSensorFrame(
-                HoloLensForCV::SensorType::PhotoVideo);
+        latestFrame = _holoLensMediaFrameSourceGroup->GetLatestSensorFrame(HoloLensForCV::SensorType::PhotoVideo);
+		latestDepthFrame = _depthMediaFrameSourceGroup->GetLatestSensorFrame(HoloLensForCV::SensorType::ShortThrowToFDepth);
 
-        if (nullptr == latestFrame)
-        {
-            return;
-        }
+		if (nullptr == latestFrame || nullptr == latestDepthFrame)
+		{
+			return;
+		}
+
+		if (nullptr == _depthMapper)
+		{
+			_depthMapper = new DepthPvMapper(latestDepthFrame);
+		}
 
         if (_latestSelectedCameraTimestamp.UniversalTime == latestFrame->Timestamp.UniversalTime)
         {
@@ -116,102 +145,25 @@ namespace ComputeOnDevice
         _latestSelectedCameraTimestamp = latestFrame->Timestamp;
 
         cv::Mat wrappedImage;
+		cv::Mat wrappedDepthImage;
+		cv::Mat pvDepth;
 
-        rmcv::WrapHoloLensSensorFrameWithCvMat(
-            latestFrame,
-            wrappedImage);
+        rmcv::WrapHoloLensSensorFrameWithCvMat(latestFrame, wrappedImage);
+		rmcv::WrapHoloLensSensorFrameWithCvMat(latestDepthFrame, wrappedDepthImage);
 
-        if (!_undistortMapsInitialized)
-        {
-            Windows::Media::Devices::Core::CameraIntrinsics^ cameraIntrinsics =
-                latestFrame->CoreCameraIntrinsics;
+		pvDepth = _depthMapper->MapDepthToPV(latestFrame, latestDepthFrame, 20, 3000);
+		
+		auto depthProjRgb = cv::Mat(wrappedImage.rows, wrappedImage.cols, CV_8UC4);
+		// map to shorter range than sensor to make sparse dots more visible
+		pvDepth *= 255.0 / 1000;
+		cv::cvtColor(pvDepth, depthProjRgb, CV_GRAY2BGRA);
+		depthProjRgb.convertTo(depthProjRgb, CV_8UC4);
 
-            if (nullptr != cameraIntrinsics)
-            {
-                cv::Mat cameraMatrix(3, 3, CV_64FC1);
-
-                cv::setIdentity(cameraMatrix);
-
-                cameraMatrix.at<double>(0, 0) = cameraIntrinsics->FocalLength.x;
-                cameraMatrix.at<double>(1, 1) = cameraIntrinsics->FocalLength.y;
-                cameraMatrix.at<double>(0, 2) = cameraIntrinsics->PrincipalPoint.x;
-                cameraMatrix.at<double>(1, 2) = cameraIntrinsics->PrincipalPoint.y;
-
-                cv::Mat distCoeffs(5, 1, CV_64FC1);
-
-                distCoeffs.at<double>(0, 0) = cameraIntrinsics->RadialDistortion.x;
-                distCoeffs.at<double>(1, 0) = cameraIntrinsics->RadialDistortion.y;
-                distCoeffs.at<double>(2, 0) = cameraIntrinsics->TangentialDistortion.x;
-                distCoeffs.at<double>(3, 0) = cameraIntrinsics->TangentialDistortion.y;
-                distCoeffs.at<double>(4, 0) = cameraIntrinsics->RadialDistortion.z;
-
-                cv::initUndistortRectifyMap(
-                    cameraMatrix,
-                    distCoeffs,
-                    cv::Mat_<double>::eye(3, 3) /* R */,
-                    cameraMatrix,
-                    cv::Size(wrappedImage.cols, wrappedImage.rows),
-                    CV_32FC1 /* type */,
-                    _undistortMap1,
-                    _undistortMap2);
-
-                _undistortMapsInitialized = true;
-            }
-        }
-
-        if (_undistortMapsInitialized)
-        {
-            cv::remap(
-                wrappedImage,
-                _undistortedPVCameraImage,
-                _undistortMap1,
-                _undistortMap2,
-                cv::INTER_LINEAR);
-
-            cv::resize(
-                _undistortedPVCameraImage,
-                _resizedPVCameraImage,
-                cv::Size(),
-                0.5 /* fx */,
-                0.5 /* fy */,
-                cv::INTER_AREA);
-        }
-        else
-        {
-            cv::resize(
-                wrappedImage,
-                _resizedPVCameraImage,
-                cv::Size(),
-                0.5 /* fx */,
-                0.5 /* fy */,
-                cv::INTER_AREA);
-        }
-
-        cv::medianBlur(
-            _resizedPVCameraImage,
-            _blurredPVCameraImage,
-            3 /* ksize */);
-
-        cv::Canny(
-            _blurredPVCameraImage,
-            _cannyPVCameraImage,
-            50.0,
-            200.0);
-
-        for (int32_t y = 0; y < _blurredPVCameraImage.rows; ++y)
-        {
-            for (int32_t x = 0; x < _blurredPVCameraImage.cols; ++x)
-            {
-                if (_cannyPVCameraImage.at<uint8_t>(y, x) > 64)
-                {
-                    *(_blurredPVCameraImage.ptr<uint32_t>(y, x)) = 0xFFFF00FF;
-                }
-            }
-        }
+		depthProjRgb = depthProjRgb + wrappedImage;
 
         OpenCVHelpers::CreateOrUpdateTexture2D(
             _deviceResources,
-            _blurredPVCameraImage,
+			depthProjRgb,
             _currentVisualizationTexture);
     }
 
@@ -275,9 +227,19 @@ namespace ComputeOnDevice
 
         _sensorFrameStreamer->EnableAll();
 
+		_depthMediaFrameSourceGroup =
+			ref new HoloLensForCV::MediaFrameSourceGroup(
+				HoloLensForCV::MediaFrameSourceGroupType::HoloLensResearchModeSensors,
+				_spatialPerception,
+				_sensorFrameStreamer);
+
+		_depthMediaFrameSourceGroup->Enable(
+			HoloLensForCV::SensorType::ShortThrowToFDepth);
+
+
         _holoLensMediaFrameSourceGroup =
             ref new HoloLensForCV::MediaFrameSourceGroup(
-                _selectedHoloLensMediaFrameSourceGroupType,
+				HoloLensForCV::MediaFrameSourceGroupType::PhotoVideoCamera,
                 _spatialPerception,
                 _sensorFrameStreamer);
 
@@ -289,5 +251,11 @@ namespace ComputeOnDevice
         {
             _holoLensMediaFrameSourceGroupStarted = true;
         });
+
+		concurrency::create_task(_depthMediaFrameSourceGroup->StartAsync()).then(
+			[&]()
+		{
+			_depthMediaFrameSourceGroupStarted = true;
+		});
     }
 }
