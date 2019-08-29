@@ -151,7 +151,7 @@ namespace ComputeOnDevice
         rmcv::WrapHoloLensSensorFrameWithCvMat(latestFrame, wrappedImage);
 		rmcv::WrapHoloLensSensorFrameWithCvMat(latestDepthFrame, wrappedDepthImage);
 
-		pvDepth = _depthMapper->MapDepthToPV(latestFrame, latestDepthFrame, 20, 3000);
+		pvDepth = _depthMapper->MapDepthToPV(latestFrame, latestDepthFrame, 20, 3000, 5);
 		
 		auto depthProjRgb = cv::Mat(wrappedImage.rows, wrappedImage.cols, CV_8UC4);
 		// map to shorter range than sensor to make sparse dots more visible
@@ -159,7 +159,7 @@ namespace ComputeOnDevice
 		cv::cvtColor(pvDepth, depthProjRgb, CV_GRAY2BGRA);
 		depthProjRgb.convertTo(depthProjRgb, CV_8UC4);
 
-		depthProjRgb = depthProjRgb + wrappedImage;
+		depthProjRgb = 0.8*depthProjRgb + 0.2*wrappedImage;
 
         OpenCVHelpers::CreateOrUpdateTexture2D(
             _deviceResources,

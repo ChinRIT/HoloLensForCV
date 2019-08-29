@@ -69,7 +69,7 @@ namespace ComputeOnDevice
 
 	// Projects depth sensor data to PV frame and returns Mat with measured distances in mm in PV frame coordinates
 	cv::Mat DepthPvMapper::MapDepthToPV(HoloLensForCV::SensorFrame^ pvFrame, HoloLensForCV::SensorFrame^ depthFrame,
-		int depthRangeFrom, int depthRangeTo) {
+		int depthRangeFrom, int depthRangeTo, int patchRadius) {
 		int pvWidth = pvFrame->SoftwareBitmap->PixelWidth;
 		int pvHeight = pvFrame->SoftwareBitmap->PixelHeight;
 		cv::Mat res(pvHeight, pvWidth, CV_16UC1, cv::Scalar::all(0));
@@ -109,7 +109,10 @@ namespace ComputeOnDevice
 				{
 					int imgX = (int)(pvWidth * (normProjPoint.val[0] + 1) / 2.0);
 					int imgY = (int)(pvHeight * (1 - (normProjPoint.val[1] + 1) / 2.0));
-					res.at<ushort>(imgY, imgX) = (ushort)depthImage.at<ushort>(y, x);
+					for (int i = imgX - patchRadius; i <= imgX + patchRadius; i++)
+						for (int j = imgY - patchRadius; j <= imgY + patchRadius; j++)
+							if (i >= 0 && j >= 0 && i < res.cols && j < res.rows)
+								res.at<ushort>(j, i) = (ushort)depthImage.at<ushort>(y, x);
 				}
 			}
 		}
